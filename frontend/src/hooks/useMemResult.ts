@@ -1,15 +1,6 @@
 import { useState, useRef } from 'react'
-import axios from 'axios'
 import type { MemResult } from '../types/mem'
 import * as api from '../api/mem'
-
-function getErrorMessage(e: unknown): string {
-  if (axios.isAxiosError(e) && e.response?.data?.detail) {
-    return e.response.data.detail
-  }
-  if (e instanceof Error) return e.message
-  return 'Unknown error'
-}
 
 function rotateComplex(
   realPart: number[],
@@ -38,19 +29,19 @@ export function useMemResult() {
   const runMem = async (
     file: File,
     nn?: number,
-    nNout?: number,
+    memPoints?: number,
     column?: number
   ) => {
     setLoading(true)
     setError(null)
     try {
-      const data = await api.runMem(file, nn, nNout, column)
+      const data = await api.runMem(file, nn, memPoints, column)
       originalRealRef.current = [...data.real_part]
       originalImagRef.current = [...data.imag_part]
       setResult(data)
       setPhaseAngle(0)
     } catch (e: unknown) {
-      setError(getErrorMessage(e))
+      setError(api.getApiErrorMessage(e))
     } finally {
       setLoading(false)
     }

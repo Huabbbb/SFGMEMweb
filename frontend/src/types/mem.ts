@@ -1,12 +1,22 @@
 export interface MemResult {
   wavenumbers: number[]
+  original_wavenumbers: number[]
+  mem_wavenumbers: number[]
   original_intensity: number[]
+  mem_input_intensity: number[]
   reconstructed_intensity: number[]
   real_part: number[]
   imag_part: number[]
   peak_intensity: number
   n_points: number
+  n_original: number
+  n_mem: number
   nn: number
+  original_frequency_range: [number, number]
+  mem_frequency_range: [number, number]
+  resampling_method: string
+  original_grid_uniform: boolean
+  resampling_note: string
   columns_info?: ColumnInfo[]
 }
 
@@ -65,13 +75,24 @@ export interface FittingParams {
 
 export interface MemCompareResult {
   wavenumbers: number[]
+  original_wavenumbers: number[]
+  mem_wavenumbers: number[]
+  original_intensity: number[]
   import_intensity: number[]
+  mem_input_intensity: number[]
   fitting_intensity: number[]
   mem_real: number[]
   mem_imag: number[]
   fitting_real: number[]
   fitting_imag: number[]
   n_points: number
+  n_original: number
+  n_mem: number
   nn: number
+  original_frequency_range: [number, number]
+  mem_frequency_range: [number, number]
+  resampling_method: string
+  original_grid_uniform: boolean
+  resampling_note: string
   columns_info?: ColumnInfo[]
 }

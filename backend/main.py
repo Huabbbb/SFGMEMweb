@@ -11,9 +11,11 @@ import os
 
 from memnum import memnum
 from spectral_utils import (
+    MAX_MEM_CALCULATION_POINTS,
     parse_csv_file,
     get_intensity_column,
     apply_phase_rotation,
+    resample_spectrum_for_mem,
 )
 from sfg_generator import compute_sfg_spectrum
 
@@ -48,11 +50,32 @@ class SfgGenerateRequest(BaseModel):
     peaks: List[dict] = []
 
 
+def parse_mem_points(value: Optional[str], default_value: int) -> int:
+    if value is None:
+        parsed = default_value
+    else:
+        text = value.strip()
+        if text == "":
+            raise HTTPException(status_code=422, detail="MEM calculation points cannot be empty")
+        if not text.isdigit():
+            raise HTTPException(status_code=422, detail="MEM calculation points must be a positive integer")
+        parsed = int(text)
+    if parsed < 3:
+        raise HTTPException(status_code=422, detail="MEM calculation points must be at least 3")
+    if parsed > MAX_MEM_CALCULATION_POINTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"MEM calculation points must not exceed {MAX_MEM_CALCULATION_POINTS}",
+        )
+    return parsed
+
+
 @app.post("/api/mem/run")
 async def mem_run(
     file: UploadFile = File(...),
     nn: Optional[int] = Form(None),
-    nNout: Optional[int] = Form(None),
+    mem_points: Optional[str] = Form(None),
+    nnout: Optional[str] = Form(None),
     column: Optional[int] = Form(None),
 ):
     if not file.filename or not file.filename.lower().endswith('.csv'):
@@ -72,26 +95,35 @@ async def mem_run(
         raise HTTPException(status_code=422, detail=f"Invalid column index: {column}")
 
     try:
+        original_intensity = data_matrix[:, column].copy()
         intensity = get_intensity_column(data_matrix, column)
     except IndexError:
         raise HTTPException(status_code=422, detail="Data column not found")
 
-    N = len(intensity)
-    _nn = nn if nn is not None else min(1024, N // 2)
-    _nnout = nNout if nNout is not None else N
-
-    if _nn < 2 or _nn > N:
-        raise HTTPException(status_code=422, detail=f"NN must be between 2 and {N}")
-    if _nnout < 2:
-        raise HTTPException(status_code=422, detail="NNout must be at least 2")
+    N_original = len(intensity)
+    _n_mem = parse_mem_points(mem_points if mem_points is not None else nnout, N_original)
 
     try:
-        SS, chiT, Ft1, ASt1 = memnum(intensity, _nn, _nnout)
+        mem_wavenumbers, mem_intensity, grid_info = resample_spectrum_for_mem(
+            wavenumbers,
+            intensity,
+            _n_mem,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _nn = nn if nn is not None else min(1024, _n_mem // 2)
+
+    if _nn < 2 or _nn >= _n_mem:
+        raise HTTPException(status_code=422, detail=f"NN must be between 2 and N_MEM - 1 ({_n_mem - 1})")
+
+    try:
+        SS, chiT, Ft1, ASt1 = memnum(mem_intensity, _nn, _n_mem)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"MEM calculation failed: {str(e)}")
 
     abs_sq = np.abs(chiT) ** 2
-    ratio = np.where(abs_sq > 1e-30, intensity / abs_sq, np.nan)
+    ratio = np.where(abs_sq > 1e-30, mem_intensity / abs_sq, np.nan)
     median_ratio = np.nanmedian(ratio)
     if np.isfinite(median_ratio) and median_ratio > 0:
         rat = np.sqrt(median_ratio)
@@ -103,15 +135,21 @@ async def mem_run(
     peak_idx = np.argmax(SS)
 
     return {
-        "wavenumbers": wavenumbers.tolist(),
-        "original_intensity": intensity.tolist(),
+        "wavenumbers": mem_wavenumbers.tolist(),
+        "original_wavenumbers": wavenumbers.tolist(),
+        "mem_wavenumbers": mem_wavenumbers.tolist(),
+        "original_intensity": original_intensity.tolist(),
+        "mem_input_intensity": mem_intensity.tolist(),
         "reconstructed_intensity": SS.tolist(),
         "real_part": np.real(chiT).tolist(),
         "imag_part": np.imag(chiT).tolist(),
         "peak_intensity": float(SS[peak_idx]),
-        "n_points": int(N),
+        "n_points": int(_n_mem),
+        "n_original": int(N_original),
+        "n_mem": int(_n_mem),
         "nn": int(_nn),
         "columns_info": columns_info,
+        **grid_info,
     }
 
 
@@ -127,6 +165,7 @@ async def mem_phase(request: PhaseRequest):
 async def mem_compare(
     file: UploadFile = File(...),
     nn: Optional[int] = Form(None),
+    mem_points: Optional[str] = Form(None),
     column: Optional[int] = Form(None),
     params_json: str = Form(...),
 ):
@@ -165,45 +204,63 @@ async def mem_compare(
         raise HTTPException(status_code=422, detail=f"Invalid column index: {column}")
 
     try:
+        original_intensity = data_matrix[:, column].copy()
         intensity = get_intensity_column(data_matrix, column)
     except IndexError:
         raise HTTPException(status_code=422, detail="Data column not found")
 
-    N = len(intensity)
-    _nn = nn if nn is not None else min(1024, N // 2)
-    _nnout = N
-
-    if _nn < 2 or _nn > N:
-        raise HTTPException(status_code=422, detail=f"NN must be between 2 and {N}")
+    N_original = len(intensity)
+    _n_mem = parse_mem_points(mem_points, N_original)
 
     try:
-        SS, chiT, Ft1, ASt1 = memnum(intensity, _nn, _nnout)
+        mem_wavenumbers, mem_intensity, grid_info = resample_spectrum_for_mem(
+            wavenumbers,
+            intensity,
+            _n_mem,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _nn = nn if nn is not None else min(1024, _n_mem // 2)
+
+    if _nn < 2 or _nn >= _n_mem:
+        raise HTTPException(status_code=422, detail=f"NN must be between 2 and N_MEM - 1 ({_n_mem - 1})")
+
+    try:
+        SS, chiT, Ft1, ASt1 = memnum(mem_intensity, _nn, _n_mem)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"MEM calculation failed: {str(e)}")
 
     abs_sq = np.abs(chiT) ** 2
-    ratio = np.where(abs_sq > 1e-30, intensity / abs_sq, np.nan)
+    ratio = np.where(abs_sq > 1e-30, mem_intensity / abs_sq, np.nan)
     median_ratio = np.nanmedian(ratio)
     if np.isfinite(median_ratio) and median_ratio > 0:
         rat = np.sqrt(median_ratio)
         chiT = chiT * rat
 
     try:
-        fit_intensity, fit_real, fit_imag, _, _ = compute_sfg_spectrum(wavenumbers, fitting_raw_params, phases=fit_phases)
+        fit_intensity, fit_real, fit_imag, _, _ = compute_sfg_spectrum(mem_wavenumbers, fitting_raw_params, phases=fit_phases)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fitting spectrum calculation failed: {str(e)}")
 
     return {
-        "wavenumbers": wavenumbers.tolist(),
-        "import_intensity": intensity.tolist(),
+        "wavenumbers": mem_wavenumbers.tolist(),
+        "original_wavenumbers": wavenumbers.tolist(),
+        "mem_wavenumbers": mem_wavenumbers.tolist(),
+        "original_intensity": original_intensity.tolist(),
+        "import_intensity": mem_intensity.tolist(),
+        "mem_input_intensity": mem_intensity.tolist(),
         "fitting_intensity": fit_intensity.tolist(),
         "mem_real": np.real(chiT).tolist(),
         "mem_imag": np.imag(chiT).tolist(),
         "fitting_real": fit_real.tolist(),
         "fitting_imag": fit_imag.tolist(),
-        "n_points": int(N),
+        "n_points": int(_n_mem),
+        "n_original": int(N_original),
+        "n_mem": int(_n_mem),
         "nn": int(_nn),
         "columns_info": columns_info,
+        **grid_info,
     }
 
 

@@ -98,7 +98,7 @@ export default function SfgGeneratorPage() {
       ;[intensityRef, realRef, imagRef].forEach((r) => { if (r.current) Plotly.purge(r.current) })
       setTimeout(() => drawCharts(data, showSubpeaks), 50)
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Error')
+      setError(api.getApiErrorMessage(e))
     } finally { setLoading(false) }
   }
 

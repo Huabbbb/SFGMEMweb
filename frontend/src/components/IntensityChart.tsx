@@ -4,8 +4,10 @@ import 'plotly.js/dist/plotly.min.js'
 const Plotly = (window as any).Plotly
 
 interface IntensityChartProps {
-  wavenumbers: number[]
+  originalWavenumbers: number[]
   originalIntensity: number[]
+  memWavenumbers?: number[]
+  memInputIntensity?: number[]
 }
 
 const layout = {
@@ -27,40 +29,54 @@ const config = {
 }
 
 export default function IntensityChart({
-  wavenumbers,
+  originalWavenumbers,
   originalIntensity,
+  memWavenumbers,
+  memInputIntensity,
 }: IntensityChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!containerRef.current || wavenumbers.length === 0) return
+    if (!containerRef.current || originalWavenumbers.length === 0) return
 
     function safeValues(arr: number[]): number[] {
       return arr.map((v) => (Number.isFinite(v) ? v : 0))
     }
 
-    const safeWavenumbers = safeValues(wavenumbers)
+    const safeOriginalWavenumbers = safeValues(originalWavenumbers)
     const safeOriginal = safeValues(originalIntensity)
-
-    Plotly.newPlot(containerRef.current, [
+    const traces: any[] = [
       {
-        x: safeWavenumbers,
+        x: safeOriginalWavenumbers,
         y: safeOriginal,
         type: 'scatter',
         mode: 'lines',
-        name: 'Original |chi|^2',
+        name: 'Original spectrum',
         line: { color: '#1677ff', width: 1.5 },
       },
-    ], layout, config)
+    ]
+
+    if (memWavenumbers && memInputIntensity) {
+      traces.push({
+        x: safeValues(memWavenumbers),
+        y: safeValues(memInputIntensity),
+        type: 'scatter',
+        mode: 'lines',
+        name: 'MEM input spectrum',
+        line: { color: '#f39c12', width: 1.5, dash: 'dash' },
+      })
+    }
+
+    Plotly.newPlot(containerRef.current, traces, layout, config)
 
     return () => {
       if (containerRef.current) {
         Plotly.purge(containerRef.current)
       }
     }
-  }, [wavenumbers, originalIntensity])
+  }, [originalWavenumbers, originalIntensity, memWavenumbers, memInputIntensity])
 
-  if (wavenumbers.length === 0) {
+  if (originalWavenumbers.length === 0) {
     return (
       <div
         style={{

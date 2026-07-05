@@ -6,7 +6,7 @@ import IntensityChart from '../components/IntensityChart'
 import ComplexChart from '../components/ComplexChart'
 import PhaseControl from '../components/PhaseControl'
 
-const { Content, Footer } = Layout
+const { Footer } = Layout
 const { Text } = Typography
 
 function MemAnalyzerPage() {
@@ -26,8 +26,10 @@ function MemAnalyzerPage() {
                 <Col xs={24} lg={12}>
                   <div style={{ background: '#fff', borderRadius: 8, padding: 16 }}>
                     <IntensityChart
-                      wavenumbers={result.wavenumbers}
+                      originalWavenumbers={result.original_wavenumbers}
                       originalIntensity={result.original_intensity}
+                      memWavenumbers={result.mem_wavenumbers}
+                      memInputIntensity={result.mem_input_intensity}
                     />
                   </div>
                 </Col>
@@ -50,6 +52,16 @@ function MemAnalyzerPage() {
                   wavenumbers={result.wavenumbers}
                   realPart={result.real_part}
                   imagPart={result.imag_part}
+                  originalWavenumbers={result.original_wavenumbers}
+                  originalIntensity={result.original_intensity}
+                  memInputIntensity={result.mem_input_intensity}
+                  nOriginal={result.n_original}
+                  nMem={result.n_mem}
+                  nn={result.nn}
+                  originalFrequencyRange={result.original_frequency_range}
+                  memFrequencyRange={result.mem_frequency_range}
+                  resamplingMethod={result.resampling_method}
+                  resamplingNote={result.resampling_note}
                 />
               </div>
             </>
@@ -76,7 +88,11 @@ function MemAnalyzerPage() {
       {hasResult && result && (
         <Footer style={{ textAlign: 'center', padding: '8px 24px', background: '#f0f2f5' }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            Data points: {result.wavenumbers.length} | NN: {result.nn} | NNout: {result.wavenumbers.length} | Peak: {result.peak_intensity.toExponential(4)}
+            N_original: {result.n_original} | N_MEM: {result.n_mem} | NN: {result.nn} | Original range: {result.original_frequency_range[0]} - {result.original_frequency_range[1]} | MEM range: {result.mem_frequency_range[0]} - {result.mem_frequency_range[1]} | {result.resampling_method} | Peak: {result.peak_intensity.toExponential(4)}
+          </Text>
+          <br />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            通过插值增加 MEM 计算点数不会增加原始光谱信息。
           </Text>
         </Footer>
       )}

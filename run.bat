@@ -4,6 +4,20 @@ cd /d "%~dp0"
 
 set "PYTHON=D:\Anaconda\envs\py310\python.exe"
 
+if not exist "%PYTHON%" (
+    echo Configured Python was not found:
+    echo   %PYTHON%
+    echo Falling back to Python from PATH...
+    where python >nul 2>nul
+    if errorlevel 1 (
+        echo.
+        echo Python was not found. Please install Python 3.10+ or update PYTHON in run.bat.
+        pause
+        exit /b 1
+    )
+    set "PYTHON=python"
+)
+
 echo.
 echo ============================================
 echo   MEM Analyzer Web

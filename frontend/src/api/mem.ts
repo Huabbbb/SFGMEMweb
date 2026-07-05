@@ -3,16 +3,30 @@ import type { MemResult, PhaseRequest, PhaseResponse, SfgGenerateRequest, SfgRes
 
 const api = axios.create({ baseURL: '/api' })
 
+export function getApiErrorMessage(e: unknown): string {
+  if (axios.isAxiosError(e)) {
+    if (e.response?.status === 502) {
+      return '后端服务未启动或不可访问。请确认 MEM Backend 窗口已正常运行，并检查 http://localhost:8000/api/health。'
+    }
+    if (e.response?.data?.detail) {
+      return e.response.data.detail
+    }
+    if (e.message) return e.message
+  }
+  if (e instanceof Error) return e.message
+  return 'Unknown error'
+}
+
 export async function runMem(
   file: File,
   nn?: number,
-  nNout?: number,
+  memPoints?: number,
   column?: number
 ): Promise<MemResult> {
   const formData = new FormData()
   formData.append('file', file)
   if (nn != null) formData.append('nn', String(nn))
-  if (nNout != null) formData.append('nnout', String(nNout))
+  if (memPoints != null) formData.append('mem_points', String(memPoints))
   if (column != null) formData.append('column', String(column))
   const { data } = await api.post<MemResult>('/mem/run', formData)
   return data
@@ -31,12 +45,14 @@ export async function generateSfg(params: SfgGenerateRequest): Promise<SfgResult
 export async function runMemCompare(
   file: File,
   nn: number | undefined,
+  memPoints: number | undefined,
   column: number | undefined,
   fitParams: FittingParams,
 ): Promise<MemCompareResult> {
   const formData = new FormData()
   formData.append('file', file)
   if (nn != null) formData.append('nn', String(nn))
+  if (memPoints != null) formData.append('mem_points', String(memPoints))
   if (column != null) formData.append('column', String(column))
   formData.append('params_json', JSON.stringify(fitParams))
   const { data } = await api.post<MemCompareResult>('/mem/compare', formData)

@@ -5,11 +5,20 @@ import type { UploadFile } from 'antd/es/upload/interface'
 import type { ColumnInfo } from '../types/mem'
 
 const { Text } = Typography
+const MAX_MEM_CALCULATION_POINTS = 20000
 
 interface UploadPanelProps {
-  onRun: (file: File, nn: number | undefined, nNout: number | undefined, column: number) => void
+  onRun: (file: File, nn: number | undefined, memPoints: number | undefined, column: number) => void
   loading: boolean
   error: string | null
+}
+
+function countCsvDataRows(text: string): number {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  if (lines.length === 0) return 0
+  const firstTokens = lines[0].split(',')
+  const hasHeader = isNaN(Number(firstTokens[0]?.trim()))
+  return hasHeader ? Math.max(lines.length - 1, 0) : lines.length
 }
 
 function UploadPanel({ onRun, loading, error }: UploadPanelProps) {
@@ -18,7 +27,9 @@ function UploadPanel({ onRun, loading, error }: UploadPanelProps) {
   const [columns, setColumns] = useState<ColumnInfo[]>([])
   const [selectedColumn, setSelectedColumn] = useState<number>(1)
   const [nn, setNn] = useState<number | null>(null)
-  const [nNout, setNNout] = useState<number | null>(null)
+  const [memPoints, setMemPoints] = useState<number | null>(null)
+  const [originalPoints, setOriginalPoints] = useState<number | null>(null)
+  const [memPointsEdited, setMemPointsEdited] = useState(false)
   const [fileName, setFileName] = useState<string>('')
 
   const handleBeforeUpload = (file: File) => {
@@ -36,9 +47,16 @@ function UploadPanel({ onRun, loading, error }: UploadPanelProps) {
         index: i,
         name: isHeader ? token.trim() : `Column ${i + 1}`,
       }))
+      const pointCount = countCsvDataRows(text)
       setColumns(cols)
       setSelectedColumn(1)
-      message.success(`Parsed ${cols.length} columns${isHeader ? ' (with header)' : ''}`)
+      setOriginalPoints(pointCount)
+      // 新光谱导入时，若用户已手动设置 N_MEM，则保留该值，避免无提示覆盖。
+      if (!memPointsEdited) {
+        setMemPoints(pointCount)
+      }
+      const keepManual = memPointsEdited && memPoints != null ? `; kept manual MEM points: ${memPoints}` : ''
+      message.success(`Parsed ${cols.length} columns, ${pointCount} points${isHeader ? ' (with header)' : ''}${keepManual}`)
     }
     reader.readAsText(file)
     fileRef.current = file
@@ -52,6 +70,9 @@ function UploadPanel({ onRun, loading, error }: UploadPanelProps) {
     setColumns([])
     setFileList([])
     setFileName('')
+    setOriginalPoints(null)
+    setMemPoints(null)
+    setMemPointsEdited(false)
   }
 
   const handleRun = () => {
@@ -59,7 +80,27 @@ function UploadPanel({ onRun, loading, error }: UploadPanelProps) {
       message.warning('Please upload a CSV file first')
       return
     }
-    onRun(fileRef.current, nn ?? undefined, nNout ?? undefined, selectedColumn)
+    if (memPoints == null) {
+      message.error('MEM calculation points cannot be empty')
+      return
+    }
+    if (!Number.isInteger(memPoints) || memPoints <= 0) {
+      message.error('MEM calculation points must be a positive integer')
+      return
+    }
+    if (memPoints < 3) {
+      message.error('MEM calculation points must be at least 3')
+      return
+    }
+    if (memPoints > MAX_MEM_CALCULATION_POINTS) {
+      message.error(`MEM calculation points must not exceed ${MAX_MEM_CALCULATION_POINTS}`)
+      return
+    }
+    if (nn != null && (!Number.isInteger(nn) || nn < 2 || nn >= memPoints)) {
+      message.error(`NN must be an integer between 2 and N_MEM - 1 (${memPoints - 1})`)
+      return
+    }
+    onRun(fileRef.current, nn ?? undefined, memPoints, selectedColumn)
   }
 
   const hasFile = fileRef.current !== null
@@ -115,22 +156,25 @@ function UploadPanel({ onRun, loading, error }: UploadPanelProps) {
           </span>
         </Col>
 
-        <Col xs={24} sm={12} md={5} lg={3}>
+        <Col xs={24} sm={12} md={8} lg={4}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-            <Text type="secondary">NNout:</Text>
+            <Text type="secondary">MEM calculation points:</Text>
             <InputNumber
-              min={2}
-              max={99999}
+              min={3}
+              max={MAX_MEM_CALCULATION_POINTS}
               size="small"
-              placeholder="auto"
-              value={nNout}
-              onChange={(v) => setNNout(v)}
-              style={{ width: 80 }}
+              placeholder={originalPoints != null ? String(originalPoints) : 'auto'}
+              value={memPoints}
+              onChange={(v) => {
+                setMemPoints(v)
+                setMemPointsEdited(true)
+              }}
+              style={{ width: 100 }}
             />
           </span>
         </Col>
 
-        <Col xs={24} sm={12} md={9} lg={4} style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Col xs={24} sm={12} md={6} lg={3} style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Button
             type="primary"
             icon={<PlayCircleOutlined />}
@@ -146,6 +190,12 @@ function UploadPanel({ onRun, loading, error }: UploadPanelProps) {
         <div style={{ marginTop: 4 }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
             {fileName} — {columns.length} columns
+            {originalPoints != null ? ` | N_original: ${originalPoints}` : ''}
+            {memPoints != null ? ` | N_MEM: ${memPoints}` : ''}
+          </Text>
+          <br />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            通过插值增加 MEM 计算点数不会增加原始光谱信息。
           </Text>
         </div>
       )}

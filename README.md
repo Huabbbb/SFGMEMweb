@@ -93,8 +93,8 @@ cd backend && python main.py           # 访问 :8000
 
 | 区域 | 说明 |
 |------|------|
-| Data Setup | 上传 CSV → 选择列 → 设置 NN → Run MEM |
-| 强度谱图 | 展示原始 |χ|²，用于参考 |
+| Data Setup | 上传 CSV → 选择列 → 设置 NN 与 MEM calculation points → Run MEM |
+| 强度谱图 | 同图展示原始 |χ|² 与重采样/插值后的 MEM 输入谱 |
 | 复谱图 | Re[χ] 与 Im[χ] 曲线，随相位滑块实时旋转 |
 | 误差相位调节 | 滑块 0 ~ 2π + 精确数值输入 + Reset + 导出 CSV |
 
@@ -136,11 +136,126 @@ Gamma2=4
 
 | 功能 | 说明 |
 |------|------|
-| Data Setup | 上传实验 CSV + 选择列 + 设置 NN |
+| Data Setup | 上传实验 CSV + 选择列 + 设置 NN 与 MEM calculation points |
 | Fitting Parameters | 输入/导入拟合参数（NR 实部/虚部 + 峰参数含相位），与 SFG Generator 格式一致 |
 | 对比图 | MEM Re[χ]/Im[χ]（实线） vs Fitting Re[χ]/Im[χ]（虚线）叠绘 |
 | 误差相位滑块 | 拖动 φ 实时旋转 MEM 曲线 |
 | 差异曲线 | 实部/虚部各自的 Σ|diff| vs φ 图，当前相位位置用虚线游标标出 |
+| NRMSE 曲线 | Re-NRMSE 与 Im-NRMSE vs error phase 图，并标出各自最小值对应的 phase |
+
+## MEM Calculation Points / MEM 计算点数
+
+`MEM calculation points` 记为 `N_MEM`，用于控制实际送入 MEM 内部计算的均匀频率网格点数。它与原始光谱点数 `N_original` 不同：
+
+- `N_original`：原始导入或生成光谱的实际数据点数。
+- `N_MEM`：MEM 内部计算使用的均匀频率网格点数。
+
+默认情况下，程序令 `N_MEM = N_original`。如果原始频率轴已经均匀，MEM 会直接使用原始网格；如果原始频率轴不均匀，程序会在相同频率范围内生成均匀的 MEM 输入轴，并把强度谱映射到该轴。
+
+当 `N_MEM > N_original` 时，程序通过一维插值生成更密的 MEM 计算网格。这可能使显示曲线更平滑，或用于研究 FFT 数组长度、MEM 数值网格对结果的影响；但它不会增加原始实验或模拟光谱所包含的独立信息，也不能理解为提高真实光谱分辨率。
+
+当 `N_MEM < N_original` 时，程序会把光谱重采样到更稀疏的 MEM 输入网格。这可能减少计算量，但也可能降低对窄峰、肩峰或快速相位变化的保留能力。
+
+推荐用法：
+
+1. 日常处理真实实验光谱时，建议默认使用 `N_MEM = N_original`。
+2. 只有在研究数值网格、重采样、FFT 数组长度或 MEM 稳定性时，才系统扫描不同的 `N_MEM`。
+3. 若研究“原始采样点数对 MEM 的影响”，不应只对同一条谱插值后比较；应从相同理想模型直接生成不同原始采样密度的光谱，并优先令 `N_MEM = N_original`。
+
+GUI 使用步骤：
+
+1. 导入 CSV 光谱。
+2. 查看程序识别到的原始点数 `N_original`。
+3. 在 MEM 参数区域输入目标 `MEM calculation points / MEM 计算点数`。
+4. 点击 `Run MEM` 或 `Run MEM & Compare`。
+5. 查看原始谱、MEM 输入谱和重构 Re/Im 结果。
+6. 从状态栏或导出的 CSV 中确认本次 `N_original`、`N_MEM`、频率范围和重采样方式。
+
+限制与注意事项：
+
+- 通过插值增加 `N_MEM` 不等于增加实验信息。
+- 当前 GUI/API 限制 `N_MEM <= 20000`，过大的 `N_MEM` 会增加内存占用与计算时间。
+- `NN` 必须满足 `2 <= NN < N_MEM`。
+- 不同 `N_MEM` 下的 MEM 结果应通过 Re/Im residual、standard deviation 或其他定量指标比较，不能只凭曲线是否更平滑判断优劣。
+
+## NRMSE 误差评估与 Error Phase 优化
+
+`MEM vs Fitting` 页面会在 error phase 扫描中计算 NRMSE（Normalized Root Mean Square Error，归一化均方根误差），用于比较 MEM 重构的复谱与拟合参数生成的理想谱之间的相对误差，并辅助寻找更合适的 error phase。
+
+程序分别计算 Re-NRMSE 与 Im-NRMSE，因为实部和虚部的幅度、背景、相位敏感性可能不同；两个分量的最佳 error phase 不一定完全相同。
+
+对每一个 error phase `φ`，先计算残差：
+
+```
+r_Re,i(φ) = Re_MEM,i(φ) - Re_ideal,i
+r_Im,i(φ) = Im_MEM,i(φ) - Im_ideal,i
+```
+
+再计算对应分量的 NRMSE：
+
+```
+NRMSE_Re(φ) = RMSE(r_Re(φ)) / RMS(Re_ideal)
+NRMSE_Im(φ) = RMSE(r_Im(φ)) / RMS(Im_ideal)
+```
+
+其中 `RMSE` 是残差的均方根，`RMS` 是对应理想谱分量的均方根幅度。NRMSE 是无量纲数值，越小表示 MEM 重构谱越接近理想谱。若理想 Re 或 Im 的 RMS 接近 0，程序会使用很小的 epsilon 作为归一化下限，避免除以零、NaN 或 Inf，并在结果区与导出文件中提示。
+
+不只使用绝对残差和的原因：
+
+- 绝对残差和会受数据点数影响；
+- 绝对残差和会受整体谱强度影响；
+- NRMSE 是无量纲指标，更适合比较不同模型、不同峰强、不同非共振项、不同点数和不同噪声条件。
+
+使用方法：
+
+1. 在 `MEM vs Fitting` 页面导入实验或模拟 CSV。
+2. 输入或导入拟合参数，运行 `Run MEM & Compare`。
+3. 程序会自动扫描 error phase，并显示原有的 `Σ|diff|` 曲线。
+4. 查看 `NRMSE for Error-Phase Optimization` 图中的 Re-NRMSE 和 Im-NRMSE 曲线。
+5. 读取结果区显示的 minimum Re-NRMSE、optimal phase for Re-NRMSE、minimum Im-NRMSE 和 optimal phase for Im-NRMSE。
+
+注意事项：
+
+- Re 和 Im 的最佳 error phase 不一定完全相同。
+- NRMSE 越小，表示 MEM 重构与理想谱越接近。
+- 不应只根据谱线是否平滑判断 MEM 重构质量。
+- NRMSE 只在 MEM Re/Im 与 ideal Re/Im 已严格对齐到相同频率轴、相同点数、相同数组顺序时计算。
+
+### Selected spectral window NRMSE / 分段 NRMSE
+
+除了 full-range NRMSE，`MEM vs Fitting` 页面还支持 selected spectral window NRMSE（分段 NRMSE）。该功能只使用用户指定波数区间内的数据点，用于评价某个局部谱段中 MEM 重构谱与理想谱的匹配程度。
+
+Full-range NRMSE 与 selected-window NRMSE 的区别：
+
+- Full-range NRMSE 反映完整光谱范围内的总体重构质量。
+- Selected-window NRMSE 反映用户选择的局部波数区间内的重构质量。
+- 两者同时保留，不互相替代。
+
+当多峰相距较远或谱形较复杂时，单一 error phase 可能不能同时使所有谱段达到最佳匹配。因此，局部窗口的最佳 phase 可能与 full-range 最佳 phase 不同。
+
+对于窗口 `[ω_min, ω_max]`，程序只使用满足 `ω_min <= ω_i <= ω_max` 的数据点计算 NRMSE：
+
+```
+NRMSE_Re,window(φ) = RMSE(r_Re(φ) in selected window) / RMS(Re_ideal in selected window)
+NRMSE_Im,window(φ) = RMSE(r_Im(φ) in selected window) / RMS(Im_ideal in selected window)
+```
+
+窗口点由实际波数值筛选，不按数组索引或固定百分比截取。若用户输入的窗口超出光谱范围，程序会使用与当前光谱范围的有效交集，并显示实际使用的起止波数和窗口点数。窗口必须至少包含 3 个数据点。
+
+使用步骤：
+
+1. 在 `MEM vs Fitting` 页面运行 `Run MEM & Compare`。
+2. 在 `NRMSE for Error-Phase Optimization` 区域启用 `Enable selected spectral window NRMSE`。
+3. 输入 `Window start` 与 `Window end`。
+4. 比较 full-range 与 selected-window 的 Re-NRMSE / Im-NRMSE 曲线。
+5. 分别读取 full-range 与 selected-window 的最小 NRMSE 及对应 optimal phase。
+
+注意事项：
+
+- 分段 NRMSE 只评价选定区间。
+- 局部 NRMSE 很小并不代表整条谱都恢复良好。
+- 应结合 full-range NRMSE、分段 NRMSE、残差谱和 Re/Im 谱形共同判断 MEM 恢复质量。
+- 若窗口内 ideal Re 或 Im 的 RMS 接近 0，程序同样使用 epsilon 作为归一化下限并显示提示。
 
 ## API 接口
 
@@ -159,20 +274,26 @@ Gamma2=4
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | `file` | file | 是 | — | CSV 文件（波数 + 强度列） |
-| `nn` | int | 否 | `min(1024, N//2)` | 时间域点数 |
-| `nnout` | int | 否 | `N` | 输出频率点数 |
+| `nn` | int | 否 | `min(1024, N_MEM//2)` | 时间域点数，必须满足 `2 <= NN < N_MEM` |
+| `mem_points` | int | 否 | `N_original` | MEM 内部均匀频率网格点数 `N_MEM` |
 | `column` | int | 否 | `1` | 强度列索引 |
 
 响应：
 
 ```json
 {
-  "wavenumbers": [2800.0, 2800.5, ...],
+  "wavenumbers": [2800.0, 2800.2, ...],
+  "original_wavenumbers": [2800.0, 2800.5, ...],
+  "mem_wavenumbers": [2800.0, 2800.2, ...],
   "original_intensity": [0.001, 0.002, ...],
+  "mem_input_intensity": [0.001, 0.0014, ...],
   "real_part": [0.03, 0.032, ...],
   "imag_part": [-0.015, -0.014, ...],
   "peak_intensity": 0.15,
-  "n_points": 1000, "nn": 500
+  "n_original": 1000,
+  "n_mem": 2500,
+  "nn": 500,
+  "resampling_method": "Interpolated from 1000 to 2500 points"
 }
 ```
 
@@ -217,6 +338,7 @@ Gamma2=4
 |------|------|------|
 | `file` | file | CSV 数据文件 |
 | `nn` | int | MEM NN（可选） |
+| `mem_points` | int | MEM 计算点数 `N_MEM`（可选，默认 `N_original`） |
 | `column` | int | 强度列索引（可选） |
 | `params_json` | string | JSON 格式的拟合参数（同 SFG Generator 格式） |
 
@@ -225,9 +347,11 @@ Gamma2=4
 ```json
 {
   "wavenumbers": [...],
+  "original_wavenumbers": [...],
+  "mem_input_intensity": [...],
   "mem_real": [...], "mem_imag": [...],
   "fitting_real": [...], "fitting_imag": [...],
-  "n_points": 1000, "nn": 500
+  "n_original": 1000, "n_mem": 2500, "nn": 500
 }
 ```
 
@@ -247,9 +371,39 @@ WN,Int
 **输出** — MEM Analyzer 导出格式：
 
 ```
-Wavenumber,Re_Chi,Im_Chi
-2800.000000,8.78283326e-03,-1.93211660e-02
+# N_original,2000
+# N_MEM,5000
+# original_frequency_range,2800 to 3800
+# mem_frequency_range,2800 to 3800
+# resampling_method,Interpolated from 2000 to 5000 points
+# NN,1024
+# error_phase_rad,0
+frequency_original,intensity_original,frequency_mem,intensity_mem_input,Re_mem,Im_mem
+2800.0,0.0012,2800.0,0.0012,8.78283326e-03,-1.93211660e-02
 ```
+
+当 `N_original` 与 `N_MEM` 不同时，普通 CSV 表中无法让每一行同时一一对应原始谱和 MEM 结果；导出文件会使用空值补齐较短数组。MEM vs Fitting 的完整比较导出还包含 `fitting_intensity`、`Re_ideal_on_mem_grid`、`Im_ideal_on_mem_grid`、`Re_residual`、`Im_residual` 等列。
+
+MEM vs Fitting 的 phase scan 导出包含原有 residual 指标和 full-range NRMSE 列：
+
+```
+error_phase_rad,error_phase_deg,RealDiff,ImagDiff,re_absolute_error,im_absolute_error,re_residual_std,im_residual_std,re_nrmse_full,im_nrmse_full
+```
+
+启用 selected-window NRMSE 且窗口有效时，会额外导出：
+
+```
+window_start_cm-1,window_end_cm-1,window_points,re_nrmse_window,im_nrmse_window
+```
+
+导出文件的参数记录中会注明：
+
+```
+NRMSE normalization:
+RMSE divided by RMS amplitude of the corresponding ideal spectrum
+```
+
+导出 metadata 还会记录完整光谱范围、用户设定的窗口范围、实际用于计算的有效窗口范围、full-range optimal phase 和 windowed optimal phase。
 
 SFG Generator 导出包含总谱与各子峰分量。
 

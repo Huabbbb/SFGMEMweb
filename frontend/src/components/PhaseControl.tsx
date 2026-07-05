@@ -11,6 +11,16 @@ interface PhaseControlProps {
   wavenumbers: number[]
   realPart: number[]
   imagPart: number[]
+  originalWavenumbers?: number[]
+  originalIntensity?: number[]
+  memInputIntensity?: number[]
+  nOriginal?: number
+  nMem?: number
+  nn?: number
+  originalFrequencyRange?: [number, number]
+  memFrequencyRange?: [number, number]
+  resamplingMethod?: string
+  resamplingNote?: string
 }
 
 const marks: Record<number, string> = {
@@ -28,6 +38,16 @@ const PhaseControl: React.FC<PhaseControlProps> = ({
   wavenumbers,
   realPart,
   imagPart,
+  originalWavenumbers,
+  originalIntensity,
+  memInputIntensity,
+  nOriginal,
+  nMem,
+  nn,
+  originalFrequencyRange,
+  memFrequencyRange,
+  resamplingMethod,
+  resamplingNote,
 }) => {
   return (
     <Card
@@ -38,6 +58,17 @@ const PhaseControl: React.FC<PhaseControlProps> = ({
           wavenumbers={wavenumbers}
           realPart={realPart}
           imagPart={imagPart}
+          originalWavenumbers={originalWavenumbers}
+          originalIntensity={originalIntensity}
+          memInputIntensity={memInputIntensity}
+          nOriginal={nOriginal}
+          nMem={nMem}
+          nn={nn}
+          phaseAngle={phaseAngle}
+          originalFrequencyRange={originalFrequencyRange}
+          memFrequencyRange={memFrequencyRange}
+          resamplingMethod={resamplingMethod}
+          resamplingNote={resamplingNote}
         />
       }
     >
